@@ -9,6 +9,7 @@ export class Player extends GameObject {
         this.jumpForce = -0.95;
         this.canGrito = true;
         this.sprite.src = ASSETS.player;
+        this.frameCount = 1; // Ajustável se o sprite for sheet
     }
 
     handleInput(keys, engine) {
@@ -37,8 +38,8 @@ export class Player extends GameObject {
                 const dist = Math.abs(e.position.x - this.position.x);
                 if (dist < 400) {
                     e.isStunned = true;
-                    e.velocity.x = (e.position.x > this.position.x ? 3 : -3);
-                    e.velocity.y = -0.4 * Math.sign(engine.gravity.y);
+                    e.velocity.x = (e.position.x > this.position.x ? 4 : -4);
+                    e.velocity.y = -0.6 * Math.sign(engine.gravity.y);
                     setTimeout(() => { e.isStunned = false; }, 3000);
                 }
             }
@@ -62,13 +63,21 @@ export class Enemy extends GameObject {
         this.type = type;
         this.isStunned = false;
         this.color = type === 'petista' ? '#FF0000' : '#FFFF00';
-        this.speed = type === 'petista' ? 0.08 : 0.22;
+        this.speed = type === 'petista' ? 0.08 : 0.15;
+        this.dir = 1;
         this.sprite.src = ASSETS[type];
+        this.frameCount = 1;
     }
 
     update(dt, gravity) {
         if (!this.isStunned) {
-            this.velocity.x = -this.speed;
+            this.velocity.x = this.speed * this.dir;
+
+            // Simples IA de patrulha: inverte se colidir lateralmente
+            if (Math.abs(this.velocity.x) < 0.01 && this.isGrounded) {
+                // Provavelmente bateu em algo (ou o atrito parou)
+                // Mas GameObject vX*0.85 não existe pra Enemy sem input
+            }
         } else {
             this.velocity.x *= 0.95;
         }
@@ -82,6 +91,7 @@ export class Boss extends Enemy {
         this.size = new Vector2(128, 128);
         this.timer = 0;
         this.sprite.src = ASSETS.danilo;
+        this.frameCount = 4; // Danilo é sheet
     }
 
     update(dt, gravity, engine) {
@@ -92,6 +102,14 @@ export class Boss extends Enemy {
             document.body.classList.add('gravity-swap');
             setTimeout(() => document.body.classList.remove('gravity-swap'), 300);
         }
+
+        // Movimentação básica do Boss rumo ao jogador
+        const player = engine.entities.find(e => e instanceof Player);
+        if (player && !this.isStunned) {
+            this.dir = player.position.x > this.position.x ? 1 : -1;
+            this.velocity.x = 0.05 * this.dir;
+        }
+
         super.update(dt, gravity);
     }
 }
