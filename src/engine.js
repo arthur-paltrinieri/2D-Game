@@ -10,7 +10,7 @@ export class GameObject {
         this.gravityScale = 1;
         this.isGrounded = false;
         this.isStatic = false;
-        this.color = 'magenta'; // Cor de erro bem visível
+        this.color = 'magenta';
     }
 
     get bounds() {
@@ -41,6 +41,8 @@ export class Engine {
         this.tileMap = [];
         this.tileSize = 64;
         this.lastTime = 0;
+        this.tileset = new Image();
+        this.tileset.src = 'https://raw.githubusercontent.com/arthur-paltrinieri/2D-Game/main/assets/tileset.png'; // Tentar carregar do GitHub se local falhar
 
         window.addEventListener('resize', () => this.resize());
         this.resize();
@@ -59,8 +61,13 @@ export class Engine {
     loop(timestamp) {
         const dt = Math.min(timestamp - this.lastTime, 32);
         this.lastTime = timestamp;
-        this.update(dt);
-        this.draw();
+
+        // Anti-crash: se o dt for muito alto ou instável, resetamos
+        if (dt > 0) {
+            this.update(dt);
+            this.draw();
+        }
+
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -76,7 +83,6 @@ export class Engine {
         entity.isGrounded = false;
         const b = entity.bounds;
 
-        // Verificação expandida de tiles
         const startX = Math.floor(b.left / this.tileSize) - 1;
         const endX = Math.floor(b.right / this.tileSize) + 1;
         const startY = Math.floor(b.top / this.tileSize) - 1;
@@ -102,11 +108,11 @@ export class Engine {
 
         if (overlapX > 0 && overlapY > 0) {
             if (overlapX > overlapY) {
-                if (p.y < ty) { // Cima
+                if (p.y < ty) {
                     p.y -= overlapY;
                     entity.velocity.y = 0;
                     if (this.gravity.y > 0) entity.isGrounded = true;
-                } else { // Baixo
+                } else {
                     p.y += overlapY;
                     entity.velocity.y = 0;
                     if (this.gravity.y < 0) entity.isGrounded = true;
@@ -130,14 +136,26 @@ export class Engine {
         this.ctx.save();
         this.ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
 
-        // Desenhar Chão (Livraria Abandonada)
-        this.ctx.fillStyle = '#331100'; // Marrom madeira/terra
+        // Background Paralax Simples
+        this.ctx.globalAlpha = 0.3;
+        this.ctx.fillStyle = '#110033';
+        for (let i = 0; i < 10; i++) {
+            this.ctx.fillRect(i * 500 - (this.camera.x * 0.2), 0, 300, this.canvas.height);
+        }
+        this.ctx.globalAlpha = 1.0;
+
+        // Desenhar Chão
         this.tileMap.forEach((row, y) => {
             row.forEach((tile, x) => {
                 if (tile === 1) {
-                    this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
-                    this.ctx.strokeStyle = '#442211';
-                    this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    if (this.tileset.complete && this.tileset.naturalWidth > 0) {
+                        this.ctx.drawImage(this.tileset, 0, 0, 64, 64, x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    } else {
+                        this.ctx.fillStyle = '#331100';
+                        this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                        this.ctx.strokeStyle = '#442211';
+                        this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    }
                 }
             });
         });
@@ -149,8 +167,6 @@ export class Engine {
             } else {
                 this.ctx.fillStyle = e.color;
                 this.ctx.fillRect(e.position.x, e.position.y, e.size.x, e.size.y);
-                this.ctx.strokeStyle = 'white';
-                this.ctx.strokeRect(e.position.x, e.position.y, e.size.x, e.size.y);
             }
         });
 
