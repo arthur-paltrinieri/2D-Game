@@ -38,27 +38,30 @@ export class Player extends GameObject {
         this.canGrito = false;
         const cooldownEl = document.getElementById('grito-cooldown');
         if (cooldownEl) {
-            cooldownEl.innerText = 'O GRITO: Recarregando...';
+            cooldownEl.innerText = 'MAGIA: Canalizando Ódio...';
             cooldownEl.style.opacity = '0.5';
         }
 
+        // Mage Effect: Righteous explosion of noise and magic
         engine.entities.forEach(entity => {
             if (entity instanceof Enemy) {
                 const dist = Math.abs(entity.position.x - this.position.x);
-                if (dist < 200) {
-                    entity.stun(2000);
-                    entity.velocity.x = (entity.position.x > this.position.x ? 1 : -1) * 0.8;
+                if (dist < 250) { // Increased range for the Mage
+                    entity.stun(3000); // Longer stun
+                    entity.velocity.x = (entity.position.x > this.position.x ? 1 : -1) * 1.5;
+                    entity.velocity.y = -0.5; // Pop them up
                 }
             }
         });
 
+        // Massive shake for the Wizard's Wrath
         document.body.classList.add('shaking');
-        setTimeout(() => document.body.classList.remove('shaking'), 500);
+        setTimeout(() => document.body.classList.remove('shaking'), 800);
 
         setTimeout(() => {
             this.canGrito = true;
             if (cooldownEl) {
-                cooldownEl.innerText = 'O GRITO: Pronto';
+                cooldownEl.innerText = 'MAGIA: Pronto para Julgar';
                 cooldownEl.style.opacity = '1';
             }
         }, this.gritoCooldown);
