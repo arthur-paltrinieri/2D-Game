@@ -1,32 +1,16 @@
 export class Vector2 {
-    constructor(x = 0, y = 0) {
-        this.x = x;
-        this.y = y;
-    }
+    constructor(x = 0, y = 0) { this.x = x; this.y = y; }
 }
 
 export class GameObject {
-    constructor(x, y, width, height) {
+    constructor(x, y, w, h) {
         this.position = new Vector2(x, y);
         this.velocity = new Vector2(0, 0);
-        this.size = new Vector2(width, height);
+        this.size = new Vector2(w, h);
         this.gravityScale = 1;
-        this.isStatic = false;
         this.isGrounded = false;
-        this.color = 'red';
-    }
-
-    update(dt, gravityVector) {
-        if (this.isStatic) return;
-
-        // Apply gravity if gravityVector is passed (from Engine)
-        if (gravityVector) {
-            this.velocity.x += gravityVector.x * this.gravityScale * dt;
-            this.velocity.y += gravityVector.y * this.gravityScale * dt;
-        }
-
-        this.position.x += this.velocity.x * dt;
-        this.position.y += this.velocity.y * dt;
+        this.isStatic = false;
+        this.color = 'magenta'; // Cor de erro bem visível
     }
 
     get bounds() {
@@ -37,26 +21,29 @@ export class GameObject {
             bottom: this.position.y + this.size.y
         };
     }
+
+    update(dt, gravity) {
+        if (this.isStatic) return;
+        this.velocity.y += gravity.y * this.gravityScale * dt;
+        this.velocity.x += gravity.x * this.gravityScale * dt;
+        this.position.x += this.velocity.x * dt;
+        this.position.y += this.velocity.y * dt;
+    }
 }
 
 export class Engine {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
-        if (!this.canvas) {
-            console.error("Canvas not found!");
-            return;
-        }
         this.ctx = this.canvas.getContext('2d');
         this.entities = [];
-        this.gravity = new Vector2(0, 0.0015);
-        this.lastTime = 0;
+        this.gravity = new Vector2(0, 0.002);
         this.camera = new Vector2(0, 0);
-        this.tileMap = null;
+        this.tileMap = [];
         this.tileSize = 64;
-        this.isRunning = false;
+        this.lastTime = 0;
 
-        this.resize();
         window.addEventListener('resize', () => this.resize());
+        this.resize();
     }
 
     resize() {
@@ -65,138 +52,105 @@ export class Engine {
     }
 
     start() {
-        this.isRunning = true;
         this.lastTime = performance.now();
         requestAnimationFrame((t) => this.loop(t));
     }
 
     loop(timestamp) {
-        if (!this.isRunning) return;
-
-        const dt = timestamp - this.lastTime;
+        const dt = Math.min(timestamp - this.lastTime, 32);
         this.lastTime = timestamp;
-
-        if (dt > 0 && dt < 100) {
-            this.update(dt);
-            this.draw();
-        }
-
+        this.update(dt);
+        this.draw();
         requestAnimationFrame((t) => this.loop(t));
     }
 
     update(dt) {
         this.entities.forEach(entity => {
             entity.update(dt, this.gravity);
-            this.checkCollisions(entity);
+            this.handleCollisions(entity);
         });
     }
 
-    swapGravity() {
-        this.gravity.y *= -1;
-        this.entities.forEach(e => {
-            if (!e.isStatic) {
-                e.isGrounded = false;
-            }
-        });
-    }
-
-    checkCollisions(entity) {
-        if (entity.isStatic || !this.tileMap) return;
-
-        const bounds = entity.bounds;
+    handleCollisions(entity) {
+        if (entity.isStatic) return;
         entity.isGrounded = false;
+        const b = entity.bounds;
 
-        const startX = Math.floor(bounds.left / this.tileSize);
-        const endX = Math.ceil(bounds.right / this.tileSize);
-        const startY = Math.floor(bounds.top / this.tileSize);
-        const endY = Math.ceil(bounds.bottom / this.tileSize);
+        // Verificação expandida de tiles
+        const startX = Math.floor(b.left / this.tileSize) - 1;
+        const endX = Math.floor(b.right / this.tileSize) + 1;
+        const startY = Math.floor(b.top / this.tileSize) - 1;
+        const endY = Math.floor(b.bottom / this.tileSize) + 1;
 
-        for (let y = startY; y < endY; y++) {
-            for (let x = startX; x < endX; x++) {
+        for (let y = startY; y <= endY; y++) {
+            for (let x = startX; x <= endX; x++) {
                 if (this.tileMap[y] && this.tileMap[y][x] === 1) {
-                    this.resolveCollision(entity, x, y);
+                    this.resolveAABB(entity, x * this.tileSize, y * this.tileSize);
                 }
             }
         }
     }
 
-    resolveCollision(entity, tx, ty) {
+    resolveAABB(entity, tx, ty) {
         const tw = this.tileSize;
         const th = this.tileSize;
-        const ex = entity.position.x;
-        const ey = entity.position.y;
-        const ew = entity.size.x;
-        const eh = entity.size.y;
+        const p = entity.position;
+        const s = entity.size;
 
-        const gravDir = Math.sign(this.gravity.y);
+        const overlapX = Math.min(p.x + s.x, tx + tw) - Math.max(p.x, tx);
+        const overlapY = Math.min(p.y + s.y, ty + th) - Math.max(p.y, ty);
 
-        // Vertical Resolution (relative to gravity)
-        if (gravDir > 0) { // Standard Gravity
-            if (entity.velocity.y > 0 && ey + eh > ty * th && ey < ty * th) {
-                entity.position.y = ty * th - eh;
-                entity.velocity.y = 0;
-                entity.isGrounded = true;
-                return;
-            } else if (entity.velocity.y < 0 && ey < (ty + 1) * th && ey + eh > (ty + 1) * th) {
-                entity.position.y = (ty + 1) * th;
-                entity.velocity.y = 0;
-                return;
+        if (overlapX > 0 && overlapY > 0) {
+            if (overlapX > overlapY) {
+                if (p.y < ty) { // Cima
+                    p.y -= overlapY;
+                    entity.velocity.y = 0;
+                    if (this.gravity.y > 0) entity.isGrounded = true;
+                } else { // Baixo
+                    p.y += overlapY;
+                    entity.velocity.y = 0;
+                    if (this.gravity.y < 0) entity.isGrounded = true;
+                }
+            } else {
+                if (p.x < tx) p.x -= overlapX;
+                else p.x += overlapX;
+                entity.velocity.x = 0;
             }
-        } else { // Inverted Gravity
-            if (entity.velocity.y < 0 && ey < (ty + 1) * th && ey + eh > (ty + 1) * th) {
-                entity.position.y = (ty + 1) * th;
-                entity.velocity.y = 0;
-                entity.isGrounded = true;
-                return;
-            } else if (entity.velocity.y > 0 && ey + eh > ty * th && ey < ty * th) {
-                entity.position.y = ty * th - eh;
-                entity.velocity.y = 0;
-                return;
-            }
-        }
-
-        // Horizontal Resolution
-        if (entity.velocity.x > 0 && ex + ew > tx * tw && ex < tx * tw) {
-            entity.position.x = tx * tw - ew;
-            entity.velocity.x = 0;
-        } else if (entity.velocity.x < 0 && ex < (tx + 1) * tw && ex + ew > (tx + 1) * tw) {
-            entity.position.x = (tx + 1) * tw;
-            entity.velocity.x = 0;
         }
     }
 
     draw() {
-        this.ctx.fillStyle = '#050505'; // Clear background
+        // Céu do Mago
+        const grad = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
+        grad.addColorStop(0, '#0a0022');
+        grad.addColorStop(1, '#220044');
+        this.ctx.fillStyle = grad;
         this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
         this.ctx.save();
         this.ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
 
-        // Draw World
-        if (this.tileMap) {
-            this.ctx.fillStyle = '#1a1a1a';
-            this.tileMap.forEach((row, y) => {
-                row.forEach((tile, x) => {
-                    if (tile === 1) {
-                        this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
-                        this.ctx.strokeStyle = '#333';
-                        this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
-                    }
-                });
+        // Desenhar Chão (Livraria Abandonada)
+        this.ctx.fillStyle = '#331100'; // Marrom madeira/terra
+        this.tileMap.forEach((row, y) => {
+            row.forEach((tile, x) => {
+                if (tile === 1) {
+                    this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    this.ctx.strokeStyle = '#442211';
+                    this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                }
             });
-        }
+        });
 
-        // Draw Entities
-        this.entities.forEach(entity => {
-            if (entity.sprite && entity.sprite.complete && entity.sprite.naturalWidth > 0) {
-                this.ctx.drawImage(entity.sprite, entity.position.x, entity.position.y, entity.size.x, entity.size.y);
+        // Desenhar Entidades
+        this.entities.forEach(e => {
+            if (e.sprite && e.sprite.complete && e.sprite.naturalWidth > 0) {
+                this.ctx.drawImage(e.sprite, e.position.x, e.position.y, e.size.x, e.size.y);
             } else {
-                // FALLBACK DRAWING
-                this.ctx.fillStyle = entity.color || 'red';
-                this.ctx.fillRect(entity.position.x, entity.position.y, entity.size.x, entity.size.y);
+                this.ctx.fillStyle = e.color;
+                this.ctx.fillRect(e.position.x, e.position.y, e.size.x, e.size.y);
                 this.ctx.strokeStyle = 'white';
-                this.ctx.lineWidth = 2;
-                this.ctx.strokeRect(entity.position.x, entity.position.y, entity.size.x, entity.size.y);
+                this.ctx.strokeRect(e.position.x, e.position.y, e.size.x, e.size.y);
             }
         });
 
