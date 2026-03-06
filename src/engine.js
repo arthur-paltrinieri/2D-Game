@@ -13,12 +13,18 @@ export class GameObject {
         this.gravityScale = 1;
         this.isStatic = false;
         this.isGrounded = false;
+        this.color = 'red';
     }
 
-    update(dt, gravity) {
+    update(dt, gravityVector) {
         if (this.isStatic) return;
 
-        this.velocity.y += gravity * this.gravityScale * dt;
+        // Apply gravity if gravityVector is passed (from Engine)
+        if (gravityVector) {
+            this.velocity.x += gravityVector.x * this.gravityScale * dt;
+            this.velocity.y += gravityVector.y * this.gravityScale * dt;
+        }
+
         this.position.x += this.velocity.x * dt;
         this.position.y += this.velocity.y * dt;
     }
@@ -36,6 +42,10 @@ export class GameObject {
 export class Engine {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
+        if (!this.canvas) {
+            console.error("Canvas not found!");
+            return;
+        }
         this.ctx = this.canvas.getContext('2d');
         this.entities = [];
         this.gravity = new Vector2(0, 0.0015);
@@ -56,6 +66,7 @@ export class Engine {
 
     start() {
         this.isRunning = true;
+        this.lastTime = performance.now();
         requestAnimationFrame((t) => this.loop(t));
     }
 
@@ -65,7 +76,7 @@ export class Engine {
         const dt = timestamp - this.lastTime;
         this.lastTime = timestamp;
 
-        if (dt < 100) {
+        if (dt > 0 && dt < 100) {
             this.update(dt);
             this.draw();
         }
@@ -75,11 +86,7 @@ export class Engine {
 
     update(dt) {
         this.entities.forEach(entity => {
-            if (!entity.isStatic) {
-                entity.velocity.x += this.gravity.x * entity.gravityScale * dt;
-                entity.velocity.y += this.gravity.y * entity.gravityScale * dt;
-            }
-            entity.update(dt, 0);
+            entity.update(dt, this.gravity);
             this.checkCollisions(entity);
         });
     }
@@ -100,12 +107,12 @@ export class Engine {
         entity.isGrounded = false;
 
         const startX = Math.floor(bounds.left / this.tileSize);
-        const endX = Math.floor(bounds.right / this.tileSize);
+        const endX = Math.ceil(bounds.right / this.tileSize);
         const startY = Math.floor(bounds.top / this.tileSize);
-        const endY = Math.floor(bounds.bottom / this.tileSize);
+        const endY = Math.ceil(bounds.bottom / this.tileSize);
 
-        for (let y = startY; y <= endY; y++) {
-            for (let x = startX; x <= endX; x++) {
+        for (let y = startY; y < endY; y++) {
+            for (let x = startX; x < endX; x++) {
                 if (this.tileMap[y] && this.tileMap[y][x] === 1) {
                     this.resolveCollision(entity, x, y);
                 }
@@ -123,34 +130,32 @@ export class Engine {
 
         const gravDir = Math.sign(this.gravity.y);
 
-        if (gravDir > 0) {
+        // Vertical Resolution (relative to gravity)
+        if (gravDir > 0) { // Standard Gravity
             if (entity.velocity.y > 0 && ey + eh > ty * th && ey < ty * th) {
                 entity.position.y = ty * th - eh;
                 entity.velocity.y = 0;
                 entity.isGrounded = true;
                 return;
+            } else if (entity.velocity.y < 0 && ey < (ty + 1) * th && ey + eh > (ty + 1) * th) {
+                entity.position.y = (ty + 1) * th;
+                entity.velocity.y = 0;
+                return;
             }
-        } else {
+        } else { // Inverted Gravity
             if (entity.velocity.y < 0 && ey < (ty + 1) * th && ey + eh > (ty + 1) * th) {
                 entity.position.y = (ty + 1) * th;
                 entity.velocity.y = 0;
                 entity.isGrounded = true;
                 return;
-            }
-        }
-
-        if (gravDir > 0) {
-            if (entity.velocity.y < 0 && ey < (ty + 1) * th && ey + eh > (ty + 1) * th) {
-                entity.position.y = (ty + 1) * th;
-                entity.velocity.y = 0;
-            }
-        } else {
-            if (entity.velocity.y > 0 && ey + eh > ty * th && ey < ty * th) {
+            } else if (entity.velocity.y > 0 && ey + eh > ty * th && ey < ty * th) {
                 entity.position.y = ty * th - eh;
                 entity.velocity.y = 0;
+                return;
             }
         }
 
+        // Horizontal Resolution
         if (entity.velocity.x > 0 && ex + ew > tx * tw && ex < tx * tw) {
             entity.position.x = tx * tw - ew;
             entity.velocity.x = 0;
@@ -161,27 +166,37 @@ export class Engine {
     }
 
     draw() {
-        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
-        this.ctx.save();
-        this.ctx.translate(-this.camera.x, -this.camera.y);
+        this.ctx.fillStyle = '#050505'; // Clear background
+        this.ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
+        this.ctx.save();
+        this.ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
+
+        // Draw World
         if (this.tileMap) {
             this.ctx.fillStyle = '#1a1a1a';
             this.tileMap.forEach((row, y) => {
                 row.forEach((tile, x) => {
                     if (tile === 1) {
                         this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                        this.ctx.strokeStyle = '#333';
+                        this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
                     }
                 });
             });
         }
 
+        // Draw Entities
         this.entities.forEach(entity => {
-            if (entity.sprite && entity.sprite.complete) {
+            if (entity.sprite && entity.sprite.complete && entity.sprite.naturalWidth > 0) {
                 this.ctx.drawImage(entity.sprite, entity.position.x, entity.position.y, entity.size.x, entity.size.y);
             } else {
+                // FALLBACK DRAWING
                 this.ctx.fillStyle = entity.color || 'red';
                 this.ctx.fillRect(entity.position.x, entity.position.y, entity.size.x, entity.size.y);
+                this.ctx.strokeStyle = 'white';
+                this.ctx.lineWidth = 2;
+                this.ctx.strokeRect(entity.position.x, entity.position.y, entity.size.x, entity.size.y);
             }
         });
 
