@@ -8,15 +8,22 @@ export class GameObject {
     constructor(x, y, w, h) {
         this.position = new Vector2(x, y);
         this.velocity = new Vector2(0, 0);
-        this.size = new Vector2(w, h); // Área de colisão real
-        this.renderSize = new Vector2(w * 1.5, h * 1.5); // Área visual (um pouco maior que colisão)
+        this.size = new Vector2(w, h);
+        this.renderSize = new Vector2(w, h);
         this.gravityScale = 1;
         this.isGrounded = false;
         this.isStatic = false;
         this.toRemove = false;
         this.sprite = new Image();
         this.facing = 1;
-        this.state = 'idle';
+
+        // Sistema de Animação
+        this.frameX = 0;
+        this.frameY = 0;
+        this.frameWidth = 0;
+        this.frameHeight = 0;
+        this.animTimer = 0;
+        this.maxFrames = 1;
     }
 
     get bounds() {
@@ -36,18 +43,13 @@ export class Engine {
         this.entities = [];
         this.tileMap = [];
         this.tileSize = 64;
-        this.gravity = new Vector2(0, 0.0018);
+        this.gravity = new Vector2(0, 0.002);
         this.camera = new Vector2(0, 0);
         this.lastTime = performance.now();
-        this.accumulator = 0;
-        this.fixedDeltaTime = 1000 / 60;
 
-        this.bgPattern = null;
+        // Fundo Temático (Biblioteca/Escritório)
         this.bgImg = new Image();
         this.bgImg.src = ASSETS.tileset;
-        this.bgImg.onload = () => {
-            this.bgPattern = this.ctx.createPattern(this.bgImg, 'repeat');
-        };
 
         window.addEventListener('resize', () => this.resize());
         this.resize();
@@ -60,20 +62,16 @@ export class Engine {
     }
 
     start() {
+        this.lastTime = performance.now();
         requestAnimationFrame((t) => this.loop(t));
     }
 
     loop(timestamp) {
         let dt = timestamp - this.lastTime;
+        if (dt > 64) dt = 16.67; // Cap de Lag
         this.lastTime = timestamp;
-        if (dt > 100) dt = this.fixedDeltaTime;
 
-        this.accumulator += dt;
-        while (this.accumulator >= this.fixedDeltaTime) {
-            this.update(this.fixedDeltaTime);
-            this.accumulator -= this.fixedDeltaTime;
-        }
-
+        this.update(dt);
         this.draw();
         requestAnimationFrame((t) => this.loop(t));
     }
@@ -81,11 +79,24 @@ export class Engine {
     update(dt) {
         this.entities.forEach(e => {
             if (e.isStatic) return;
+
+            // Física Real
             e.velocity.y += this.gravity.y * e.gravityScale * dt;
             e.position.x += e.velocity.x * dt;
             e.position.y += e.velocity.y * dt;
+
+            // Animação
+            if (e.maxFrames > 1) {
+                e.animTimer += dt;
+                if (e.animTimer > 120) {
+                    e.frameX = (e.frameX + 1) % e.maxFrames;
+                    e.animTimer = 0;
+                }
+            }
+
             this.checkWorldCollision(e);
         });
+
         this.entities = this.entities.filter(e => !e.toRemove);
     }
 
@@ -108,16 +119,19 @@ export class Engine {
     }
 
     resolveAABB(e, tx, ty) {
-        const overlapX = Math.min(e.position.x + e.size.x, tx + this.tileSize) - Math.max(e.position.x, tx);
-        const overlapY = Math.min(e.position.y + e.size.y, ty + this.tileSize) - Math.max(e.position.y, ty);
+        const tw = this.tileSize;
+        const th = this.tileSize;
+
+        const overlapX = Math.min(e.position.x + e.size.x, tx + tw) - Math.max(e.position.x, tx);
+        const overlapY = Math.min(e.position.y + e.size.y, ty + th) - Math.max(e.position.y, ty);
 
         if (overlapX > 0 && overlapY > 0) {
             if (overlapX > overlapY) {
-                if (e.position.y < ty) {
+                if (e.position.y < ty) { // Bateu por cima (pousou)
                     e.position.y -= overlapY;
                     e.velocity.y = 0;
                     if (this.gravity.y > 0) e.isGrounded = true;
-                } else {
+                } else { // Bateu por baixo (teto)
                     e.position.y += overlapY;
                     e.velocity.y = 0;
                     if (this.gravity.y < 0) e.isGrounded = true;
@@ -133,56 +147,58 @@ export class Engine {
     draw() {
         const ctx = this.ctx;
 
-        // 1. Fundo Dinâmico
-        ctx.fillStyle = '#0a0022';
+        // 1. Background Corrigido (Cinza Escuro / Marrom - Biblioteca)
+        ctx.fillStyle = '#1a1a1a';
         ctx.fillRect(0, 0, this.canvas.width, this.canvas.height);
 
-        if (this.bgPattern) {
-            ctx.save();
-            // Paralax lento
-            ctx.translate(-this.camera.x * 0.2, -this.camera.y * 0.2);
-            ctx.globalAlpha = 0.4;
-            ctx.fillStyle = this.bgPattern;
-            ctx.fillRect(this.camera.x * 0.2, this.camera.y * 0.2, this.canvas.width, this.canvas.height);
-            ctx.restore();
+        if (this.bgImg.complete) {
+            ctx.globalAlpha = 0.2;
+            const bgS = 2; // Escala do background
+            const loopX = (this.camera.x * 0.2) % (this.bgImg.width * bgS);
+            for (let i = -2; i < 5; i++) {
+                ctx.drawImage(this.bgImg, (i * this.bgImg.width * bgS) - loopX, 0, this.bgImg.width * bgS, this.canvas.height);
+            }
+            ctx.globalAlpha = 1.0;
         }
 
         ctx.save();
         ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
 
-        // 2. Renderização do Mundo (Tiles como estantes/blocos)
+        // 2. Chão (Blocos de Madeira Escura / Biblioteca)
         this.tileMap.forEach((row, y) => {
             row.forEach((tile, x) => {
                 if (tile === 1) {
-                    // Gradiente para os blocos ficarem 3D/Estilizados
-                    const tX = x * this.tileSize;
-                    const tY = y * this.tileSize;
-                    ctx.fillStyle = '#1e0b3d';
-                    ctx.fillRect(tX, tY, this.tileSize, this.tileSize);
-                    ctx.strokeStyle = '#3d2b63';
-                    ctx.lineWidth = 2;
-                    ctx.strokeRect(tX + 4, tY + 4, this.tileSize - 8, this.tileSize - 8);
+                    ctx.fillStyle = '#3e2723'; // Marrom Madeira
+                    ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    ctx.strokeStyle = '#263238';
+                    ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                    // Detalhe de estante
+                    ctx.fillStyle = '#4e342e';
+                    ctx.fillRect(x * this.tileSize + 10, y * this.tileSize + 10, this.tileSize - 20, 10);
                 }
             });
         });
 
-        // 3. Entidades
+        // 3. Entidades com Animacao
         this.entities.forEach(e => {
-            if (e.sprite && e.sprite.complete) {
+            if (e.sprite && e.sprite.complete && e.sprite.naturalWidth > 0) {
                 ctx.save();
-                ctx.translate(e.position.x + e.size.x / 2, e.position.y + e.size.y / 2);
+                ctx.translate(Math.floor(e.position.x + e.size.x / 2), Math.floor(e.position.y + e.size.y / 2));
                 ctx.scale(e.facing, 1);
 
-                // Shadows
-                ctx.shadowBlur = 15;
-                ctx.shadowColor = e.isStunned ? 'red' : 'rgba(138, 43, 226, 0.5)';
+                // Recorte inteligente de frame (assume sheets baseadas no tamanho do render)
+                const fW = e.frameWidth || e.sprite.width / (e.maxFrames || 1);
+                const fH = e.frameHeight || e.sprite.height;
 
-                // Desenhar personagem centralizado
-                ctx.drawImage(e.sprite, -e.renderSize.x / 2, -e.renderSize.y / 2, e.renderSize.x, e.renderSize.y);
+                ctx.drawImage(
+                    e.sprite,
+                    e.frameX * fW, e.frameY * fH, fW, fH, // Recorte
+                    -e.renderSize.x / 2, -e.renderSize.y / 2, e.renderSize.x, e.renderSize.y // Desenho
+                );
                 ctx.restore();
             }
         });
 
-        ctx.restore();
+        this.ctx.restore();
     }
 }

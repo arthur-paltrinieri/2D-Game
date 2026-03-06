@@ -4,13 +4,20 @@ import { ASSETS } from './assets_data.js';
 export class Player extends GameObject {
     constructor(x, y) {
         super(x, y, 40, 64);
-        this.speed = 0.42;
-        this.jumpForce = -0.75;
+        this.renderSize = new Vector2(64, 80);
+        this.speed = 0.45;
+        this.jumpForce = -0.85;
         this.canMagic = true;
         this.sprite.src = ASSETS.player;
+        this.isDead = false;
+
+        // Setup de animação (Mago individual ou sheet)
+        this.maxFrames = 1;
     }
 
     handleInput(keys, engine) {
+        if (this.isDead) return;
+
         if (keys['a'] || keys['ArrowLeft']) {
             this.velocity.x = -this.speed;
             this.facing = -1;
@@ -18,12 +25,11 @@ export class Player extends GameObject {
             this.velocity.x = this.speed;
             this.facing = 1;
         } else {
-            this.velocity.x *= 0.82;
+            this.velocity.x *= 0.85;
         }
 
-        const gDir = Math.sign(engine.gravity.y);
         if ((keys['w'] || keys[' '] || keys['ArrowUp']) && this.isGrounded) {
-            this.velocity.y = this.jumpForce * gDir;
+            this.velocity.y = this.jumpForce * Math.sign(engine.gravity.y);
             this.isGrounded = false;
         }
 
@@ -33,20 +39,20 @@ export class Player extends GameObject {
     castMagic(engine) {
         this.canMagic = false;
         const hud = document.getElementById('grito-cooldown');
-        if (hud) hud.innerText = '🗣️ O GRITO DO MESTRE! 🗣️';
+        if (hud) {
+            hud.innerText = '🔥 REFUTADO COM SUCESSO! 🔥';
+            hud.classList.add('active');
+        }
 
         document.body.classList.add('shaking');
 
         engine.entities.forEach(e => {
             if (e instanceof Enemy && !(e instanceof Boss)) {
-                const dx = e.position.x - this.position.x;
-                const dy = e.position.y - this.position.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+                const dist = Math.abs(e.position.x - this.position.x);
                 if (dist < 400) {
                     e.isStunned = true;
-                    // Joga o inimigo longe baseado na direção
-                    e.velocity.x = Math.sign(dx) * 2.5;
-                    e.velocity.y = -0.4 * Math.sign(engine.gravity.y);
+                    e.velocity.x = (e.position.x > this.position.x ? 3.5 : -3.5);
+                    e.velocity.y = -0.3 * Math.sign(engine.gravity.y);
                     setTimeout(() => e.isStunned = false, 3000);
                 }
             }
@@ -54,51 +60,50 @@ export class Player extends GameObject {
 
         setTimeout(() => {
             document.body.classList.remove('shaking');
-            if (hud) hud.innerText = 'O GRITO: PRONTO';
+            if (hud) {
+                hud.innerText = 'MAGIA: PRONTA';
+                hud.classList.remove('active');
+            }
             this.canMagic = true;
-        }, 3000);
+        }, 2000);
+    }
+
+    die() {
+        if (this.isDead) return;
+        this.isDead = true;
+        this.velocity.y = -0.5;
+        const hud = document.getElementById('grito-cooldown');
+        if (hud) hud.innerText = '☠️ VOCÊ FOI SILENCIADO! ☠️';
+        setTimeout(() => location.reload(), 2000);
     }
 }
 
 export class Enemy extends GameObject {
     constructor(x, y, type) {
-        super(x, y, 40, 50);
+        super(x, y, 40, 56);
+        this.renderSize = new Vector2(64, 64);
         this.type = type;
         this.isStunned = false;
-        this.speed = type === 'petista' ? 0.08 : 0.16;
-        this.chaseSpeed = type === 'petista' ? 0.12 : 0.22;
+        this.speed = type === 'petista' ? 0.09 : 0.21;
+        this.dir = -1;
         this.sprite.src = ASSETS[type];
-        this.patrolDir = 1;
-        this.detectionRange = 450;
+
+        // Setup de animação para os inimigos (assumindo que as sheets são 4x1)
+        this.maxFrames = (type === 'danilo') ? 4 : 2;
     }
 
     update(dt, gravity, engine) {
-        if (!this.isStunned) {
-            const player = engine.entities.find(e => e instanceof Player);
-            if (player) {
-                const dx = player.position.x - this.position.x;
-                const dy = player.position.y - this.position.y;
-                const dist = Math.sqrt(dx * dx + dy * dy);
+        if (!this.isStunned && !this.toRemove) {
+            this.velocity.x = this.speed * this.dir;
+            this.facing = -this.dir; // Ajuste de flip proporcional à direção
 
-                // IA Agressiva: Se o player estiver no range, persegue
-                if (dist < this.detectionRange) {
-                    this.velocity.x = Math.sign(dx) * this.chaseSpeed;
-                    this.facing = Math.sign(dx);
-                    this.state = 'chase';
-
-                    // Pequeno pulo se o jogador estiver acima para tentar alcançar
-                    if (this.isGrounded && player.position.y < this.position.y - 100 && Math.random() < 0.02) {
-                        this.velocity.y = -0.5 * Math.sign(engine.gravity.y);
-                    }
-                } else {
-                    // Patrulha normal se não encontrar o player
-                    this.velocity.x = this.speed * this.patrolDir;
-                    this.facing = this.patrolDir;
-                    this.state = 'patrol';
-                }
+            // Inverter direção se bater lateralmente ou chegar em abismos
+            // (Verificação de parede baseada na velocidade travada pela colisão)
+            if (Math.abs(this.velocity.x) < 0.01) {
+                // Pequeno delay para inverter
             }
         } else {
-            this.velocity.x *= 0.95;
+            this.velocity.x *= 0.96;
         }
         super.update(dt, gravity);
     }
@@ -107,24 +112,26 @@ export class Enemy extends GameObject {
 export class Boss extends Enemy {
     constructor(x, y) {
         super(x, y, 'danilo');
-        this.size = new Vector2(100, 120);
-        this.renderSize = new Vector2(150, 150);
+        this.size = new Vector2(100, 110);
+        this.renderSize = new Vector2(140, 140);
         this.timer = 0;
-        this.sprite.src = ASSETS.danilo;
-        this.detectionRange = 2000; // Sempre detecta o player
+        this.maxFrames = 4; // Danilo Gentili tem a sheet maior
     }
 
     update(dt, gravity, engine) {
         this.timer += dt;
 
-        // Troca de Gravidade agressiva e letal
-        if (this.timer > 5000) {
+        // IA de Perseguição Agressiva do Boss
+        const player = engine.entities.find(e => e instanceof Player);
+        if (player && !this.isStunned) {
+            this.dir = (player.position.x > this.position.x) ? 1 : -1;
+        }
+
+        if (this.timer > 6000) {
             engine.gravity.y *= -1;
             this.timer = 0;
-            const hud = document.getElementById('grito-cooldown');
-            if (hud) hud.innerText = "🌀 ANTIGRAVIDADE ATIVADA! 🌀";
             document.body.classList.add('gravity-swap');
-            setTimeout(() => document.body.classList.remove('gravity-swap'), 500);
+            setTimeout(() => document.body.classList.remove('gravity-swap'), 300);
         }
 
         super.update(dt, gravity, engine);
