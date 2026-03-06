@@ -1,3 +1,5 @@
+import { ASSETS } from './assets_data.js';
+
 export class Vector2 {
     constructor(x = 0, y = 0) { this.x = x; this.y = y; }
 }
@@ -11,6 +13,8 @@ export class GameObject {
         this.isGrounded = false;
         this.isStatic = false;
         this.color = 'magenta';
+        this.toRemove = false;
+        this.sprite = new Image();
     }
 
     get bounds() {
@@ -24,10 +28,12 @@ export class GameObject {
 
     update(dt, gravity) {
         if (this.isStatic) return;
-        this.velocity.y += gravity.y * this.gravityScale * dt;
-        this.velocity.x += gravity.x * this.gravityScale * dt;
-        this.position.x += this.velocity.x * dt;
-        this.position.y += this.velocity.y * dt;
+        // Clamp dt para evitar saltos enormes que podem causar bugs de colisão
+        const cappedDt = Math.min(dt, 20);
+        this.velocity.y += gravity.y * this.gravityScale * cappedDt;
+        this.velocity.x += gravity.x * this.gravityScale * cappedDt;
+        this.position.x += this.velocity.x * cappedDt;
+        this.position.y += this.velocity.y * cappedDt;
     }
 }
 
@@ -40,9 +46,10 @@ export class Engine {
         this.camera = new Vector2(0, 0);
         this.tileMap = [];
         this.tileSize = 64;
-        this.lastTime = 0;
+        this.lastTime = performance.now();
+
         this.tileset = new Image();
-        this.tileset.src = 'https://raw.githubusercontent.com/arthur-paltrinieri/2D-Game/main/assets/tileset.png'; // Tentar carregar do GitHub se local falhar
+        this.tileset.src = ASSETS.tileset;
 
         window.addEventListener('resize', () => this.resize());
         this.resize();
@@ -59,23 +66,26 @@ export class Engine {
     }
 
     loop(timestamp) {
-        const dt = Math.min(timestamp - this.lastTime, 32);
+        // Delta time suavizado e limitado (máx 32ms para evitar crashes se a aba for minimizada)
+        let dt = timestamp - this.lastTime;
+        if (dt > 100) dt = 16.67; // Se travou por mais de 0.1s, finge que passou um frame normal
         this.lastTime = timestamp;
 
-        // Anti-crash: se o dt for muito alto ou instável, resetamos
-        if (dt > 0) {
-            this.update(dt);
-            this.draw();
-        }
+        this.update(dt);
+        this.draw();
 
         requestAnimationFrame((t) => this.loop(t));
     }
 
     update(dt) {
+        // 1. Lógica das entidades
         this.entities.forEach(entity => {
             entity.update(dt, this.gravity);
             this.handleCollisions(entity);
         });
+
+        // 2. Limpeza de entidades marcadas para remoção
+        this.entities = this.entities.filter(e => !e.toRemove);
     }
 
     handleCollisions(entity) {
@@ -83,10 +93,11 @@ export class Engine {
         entity.isGrounded = false;
         const b = entity.bounds;
 
-        const startX = Math.floor(b.left / this.tileSize) - 1;
-        const endX = Math.floor(b.right / this.tileSize) + 1;
-        const startY = Math.floor(b.top / this.tileSize) - 1;
-        const endY = Math.floor(b.bottom / this.tileSize) + 1;
+        // Verifica tiles vizinhos (Performance: apenas o que está em volta)
+        const startX = Math.floor(b.left / this.tileSize);
+        const endX = Math.floor(b.right / this.tileSize);
+        const startY = Math.floor(b.top / this.tileSize);
+        const endY = Math.floor(b.bottom / this.tileSize);
 
         for (let y = startY; y <= endY; y++) {
             for (let x = startX; x <= endX; x++) {
@@ -126,7 +137,9 @@ export class Engine {
     }
 
     draw() {
-        // Céu do Mago
+        this.ctx.clearRect(0, 0, this.canvas.width, this.canvas.height);
+
+        // Céu
         const grad = this.ctx.createLinearGradient(0, 0, 0, this.canvas.height);
         grad.addColorStop(0, '#0a0022');
         grad.addColorStop(1, '#220044');
@@ -136,31 +149,21 @@ export class Engine {
         this.ctx.save();
         this.ctx.translate(-Math.floor(this.camera.x), -Math.floor(this.camera.y));
 
-        // Background Paralax Simples
-        this.ctx.globalAlpha = 0.3;
-        this.ctx.fillStyle = '#110033';
-        for (let i = 0; i < 10; i++) {
-            this.ctx.fillRect(i * 500 - (this.camera.x * 0.2), 0, 300, this.canvas.height);
-        }
-        this.ctx.globalAlpha = 1.0;
-
-        // Desenhar Chão
+        // Tiles
         this.tileMap.forEach((row, y) => {
             row.forEach((tile, x) => {
                 if (tile === 1) {
                     if (this.tileset.complete && this.tileset.naturalWidth > 0) {
-                        this.ctx.drawImage(this.tileset, 0, 0, 64, 64, x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
+                        this.ctx.drawImage(this.tileset, x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
                     } else {
-                        this.ctx.fillStyle = '#331100';
+                        this.ctx.fillStyle = '#3a1f0a';
                         this.ctx.fillRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
-                        this.ctx.strokeStyle = '#442211';
-                        this.ctx.strokeRect(x * this.tileSize, y * this.tileSize, this.tileSize, this.tileSize);
                     }
                 }
             });
         });
 
-        // Desenhar Entidades
+        // Entidades
         this.entities.forEach(e => {
             if (e.sprite && e.sprite.complete && e.sprite.naturalWidth > 0) {
                 this.ctx.drawImage(e.sprite, e.position.x, e.position.y, e.size.x, e.size.y);
