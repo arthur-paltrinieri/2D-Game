@@ -1,0 +1,122 @@
+:root {
+    --primary: #1a1a1a;
+    --accent: #ffcc00;
+    --text: #ffffff;
+    --glass: rgba(255, 255, 255, 0.1);
+}
+
+body,
+html {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+    background: #050505;
+    font-family: 'Inter', sans-serif;
+    color: var(--text);
+}
+
+canvas {
+    display: block;
+    image-rendering: pixelated;
+}
+
+#game-ui {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    pointer-events: none;
+    z-index: 10;
+}
+
+.hud {
+    padding: 20px;
+    display: flex;
+    justify-content: space-between;
+    background: linear-gradient(to bottom, rgba(0, 0, 0, 0.8), transparent);
+}
+
+#grito-cooldown {
+    background: var(--glass);
+    backdrop-filter: blur(10px);
+    padding: 10px 20px;
+    border-radius: 50px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    font-weight: bold;
+    text-shadow: 0 0 10px var(--accent);
+}
+
+#dialog-box {
+    position: absolute;
+    bottom: 50px;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60%;
+    background: rgba(0, 0, 0, 0.85);
+    border: 2px solid var(--accent);
+    padding: 20px;
+    border-radius: 10px;
+    transition: all 0.3s ease;
+}
+
+.hidden {
+    opacity: 0;
+    transform: translateX(-50%) translateY(20px) !important;
+}
+
+#dialog-text {
+    margin: 0;
+    font-size: 1.2rem;
+    line-height: 1.5;
+}
+
+@keyframes shake {
+    0% {
+        transform: translate(1px, 1px) rotate(0deg);
+    }
+
+    10% {
+        transform: translate(-1px, -2px) rotate(-1deg);
+    }
+
+    20% {
+        transform: translate(-3px, 0px) rotate(1deg);
+    }
+
+    30% {
+        transform: translate(3px, 2px) rotate(0deg);
+    }
+
+    40% {
+        transform: translate(1px, -1px) rotate(1deg);
+    }
+
+    50% {
+        transform: translate(-1px, 2px) rotate(-1deg);
+    }
+
+    60% {
+        transform: translate(-3px, 1px) rotate(0deg);
+    }
+
+    70% {
+        transform: translate(3px, 1px) rotate(-1deg);
+    }
+
+    80% {
+        transform: translate(-1px, -1px) rotate(1deg);
+    }
+
+    90% {
+        transform: translate(1px, 2px) rotate(0deg);
+    }
+
+    100% {
+        transform: translate(1px, -2px) rotate(-1deg);
+    }
+}
+
+.shaking {
+    animation: shake 0.5s;
+    animation-iteration-count: infinite;
+}
